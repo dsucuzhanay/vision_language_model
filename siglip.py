@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 
-from typing import Tuple
-
 class Config:
 
     def __init__(
@@ -71,7 +69,7 @@ class MultiheadAttention(nn.Module):
         self.q_proj = nn.Linear(config.hidden_size, config.hidden_size)
         self.out_proj = nn.Linear(config.hidden_size, config.hidden_size)
 
-    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         batch_size, seq_len, _ = hidden_states.size()
 
         # [b, num_patches, hidden_size] -> [b, num_patches, hidden_size]
