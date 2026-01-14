@@ -2,14 +2,15 @@ import torch
 import numpy as np
 
 from PIL import Image
+from typing import List, Tuple
 
 def preprocess_images(
-        images: list[Image.Image],
-        size: tuple[int, int],
+        images: List[Image.Image],
+        size: Tuple[int, int],
         resample: Image.Resampling,
         rescale_factor: float,
-        mean: list[float],
-        std: list[float]
+        mean: List[float],
+        std: List[float]
 ) -> torch.Tensor:
     
     images = [img.resize(size, resample) for img in images]                             # resize images

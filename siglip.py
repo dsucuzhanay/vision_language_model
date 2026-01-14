@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 
-class Config:
+from typing import Tuple
+
+class VisionConfig:
 
     def __init__(
             self,
@@ -29,7 +31,7 @@ class Config:
 
 class Embeddings(nn.Module):
 
-    def __init__(self, config: Config):
+    def __init__(self, config: VisionConfig):
         super().__init__()
 
         self.patch_embeddings = nn.Conv2d(
@@ -57,7 +59,7 @@ class Embeddings(nn.Module):
 
 class MultiheadAttention(nn.Module):
 
-    def __init__(self, config: Config):
+    def __init__(self, config: VisionConfig):
         super().__init__()
         self.num_heads = config.num_attention_heads
         self.head_dim = config.hidden_size // config.num_attention_heads
@@ -69,7 +71,7 @@ class MultiheadAttention(nn.Module):
         self.q_proj = nn.Linear(config.hidden_size, config.hidden_size)
         self.out_proj = nn.Linear(config.hidden_size, config.hidden_size)
 
-    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         batch_size, seq_len, _ = hidden_states.size()
 
         # [b, num_patches, hidden_size] -> [b, num_patches, hidden_size]
@@ -105,7 +107,7 @@ class MultiheadAttention(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, config: Config):
+    def __init__(self, config: VisionConfig):
         super().__init__()
         self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size)
         self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size)
@@ -118,7 +120,7 @@ class MLP(nn.Module):
 
 class EncoderLayer(nn.Module):
 
-    def __init__(self, config: Config):
+    def __init__(self, config: VisionConfig):
         super().__init__()
         self.self_attn = MultiheadAttention(config)
         self.layer_norm1 = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
@@ -130,6 +132,7 @@ class EncoderLayer(nn.Module):
         hidden_states = self.layer_norm1(hidden_states)
         hidden_states, _ = self.self_attn(hidden_states)
         hidden_states = residual + hidden_states
+        
         residual = hidden_states
         hidden_states = self.layer_norm2(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -138,7 +141,7 @@ class EncoderLayer(nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, config: Config):
+    def __init__(self, config: VisionConfig):
         super().__init__()
         self.layers = nn.ModuleList([EncoderLayer(config) for _ in range(config.num_hidden_layers)])
 
@@ -149,7 +152,7 @@ class Encoder(nn.Module):
 
 class VisionTransformer(nn.Module):
 
-    def __init__(self, config: Config):
+    def __init__(self, config: VisionConfig):
         super().__init__()
         self.embeddings = Embeddings(config)
         self.encoder = Encoder(config)
@@ -163,7 +166,7 @@ class VisionTransformer(nn.Module):
 
 class VisionModel(nn.Module):
 
-    def __init__(self, config: Config):
+    def __init__(self, config: VisionConfig):
         super().__init__()
         self.vision_model = VisionTransformer(config)
     
