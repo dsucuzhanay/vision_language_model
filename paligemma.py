@@ -17,6 +17,7 @@ class PaliGemmaConfig:
             projection_dim: int = 2048,
             hidden_size: int = 2048,
             pad_token_id: int = None,
+            **kwargs
     ):
         super().__init__()
 
@@ -35,7 +36,7 @@ class MultiModalProjector(nn.Module):
         super().__init__()
         self.linear = nn.Linear(config.vision_config.hidden_size, config.projection_dim)
     
-    def forward(self, vision_embeddings: torch.Tensor):
+    def forward(self, vision_embeddings: torch.Tensor) -> torch.Tensor:
         return self.linear(vision_embeddings)   # [b, num_patches, hidden_size(vision)] -> [b, num_patches, projection_dim]
 
 class PaliGemmaForConditionalGeneration(nn.Module):

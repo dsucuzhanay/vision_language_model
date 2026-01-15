@@ -16,6 +16,7 @@ class VisionConfig:
             patch_size: int = 16,
             layer_norm_eps: float = 1e-6,
             attention_dropout_prob: float = 0.0,
+            **kwargs
     ):
         super().__init__()
 

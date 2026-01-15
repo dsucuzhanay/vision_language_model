@@ -1,9 +1,43 @@
 import torch
 import torch.nn as nn
 
-from typing import Optional
 from kv_cache import KVCache
-from utils import repeat_kv, apply_rotary_pos_emb
+from typing import Optional, Tuple
+
+
+def rotate_half(x: torch.Tensor) -> torch.Tensor:
+    """Rotate half of the tensor: [x₁, x₂, x₃, x₄] -> [-x₃, -x₄, x₁, x₂]"""
+
+    x1 = x[..., :x.shape[-1] // 2]  # first half in the last dimension
+    x2 = x[..., x.shape[-1] // 2:]  # second half in the last dimension
+    return torch.cat((-x2, x1), dim=-1)
+
+def apply_rotary_pos_emb(
+        q: torch.Tensor,
+        k: torch.Tensor,
+        cos: torch.Tensor,
+        sin: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Apply rotary positional embeddings to query and key tensors."""
+
+    # add head dimension
+    cos = cos.unsqueeze(1)  # [b, seq_len, head_dim] -> [b, 1, seq_len, head_dim]
+    sin = sin.unsqueeze(1)  # [b, seq_len, head_dim] -> [b, 1, seq_len, head_dim]
+
+    q_rotated = (q * cos) + (rotate_half(q) * sin)  # [b, n_heads, seq_len, head_dim]
+    k_rotated = (k * cos) + (rotate_half(k) * sin)  # [b, n_heads, seq_len, head_dim]
+    return q_rotated, k_rotated
+
+def repeat_kv(tensor: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """Repeat key/value heads for multi-query attention."""
+
+    if n_rep == 1:
+        return tensor
+    
+    batch_size, n_heads, seq_len, head_dim = tensor.size()
+    tensor = tensor.unsqueeze(2).expand(batch_size, n_heads, n_rep, seq_len, head_dim)
+    return tensor.contiguous().view(batch_size, n_heads * n_rep, seq_len, head_dim)
+
 
 class GemmaConfig:
 
@@ -22,6 +56,7 @@ class GemmaConfig:
             attention_bias=False,
             attention_dropout=0.0,
             pad_token_id=None,
+            **kwargs
     ):
         super().__init__()
         
@@ -79,7 +114,12 @@ class RotaryPositionalEmbedding(nn.Module):
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
     @torch.no_grad()
-    def forward(self, tensor: torch.Tensor, position_ids: torch.Tensor):
+    def forward(
+        self,
+        tensor: torch.Tensor,
+        position_ids: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        
         self.inv_freq.to(tensor.device)                                                        # [head_dim/2]
         inv_freq = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)   # [head_dim/2] -> [b, head_dim/2, 1]
         position_ids = position_ids[:, None, :].float()                                        # [b, seq_len] -> [b, 1, seq_len]
@@ -124,7 +164,7 @@ class GroupedQueryAttention(nn.Module):
             position_ids: torch.Tensor,
             attention_mask: Optional[torch.Tensor] = None,
             kv_cache: Optional[KVCache] = None,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         batch_size, seq_len, _ = hidden_states.size()
 
         query = self.q_proj(hidden_states)          # [b, seq_len, hidden_size] -> [b, seq_len, num_heads * head_dim]

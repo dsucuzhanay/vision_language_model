@@ -3,6 +3,7 @@ import numpy as np
 
 from PIL import Image
 from typing import List, Tuple
+from transformers import AutoTokenizer
 
 def preprocess_images(
         images: List[Image.Image],
@@ -36,11 +37,11 @@ def add_image_tokens_to_prompt(
 ) -> str:
     return f"{image_token * image_seq_len}{bos_token}{prefix_prompt}\n"
 
-class PaliGemmaProcessor:
+class PaliGemmaPreprocessor:
 
     IMAGE_TOKEN = "<image>"
 
-    def __init__(self, tokenizer, num_image_tokens: int, image_size: int):
+    def __init__(self, tokenizer: AutoTokenizer, num_image_tokens: int, image_size: int):
         super().__init__()
 
         self.num_image_tokens = num_image_tokens
@@ -61,7 +62,7 @@ class PaliGemmaProcessor:
     def __call__(
             self,
             images: list[Image.Image],
-            text_inputs: list[str],
+            prompts: list[str],
             padding: str = "longest",
             truncation: bool = True
     ) -> dict:
@@ -82,7 +83,7 @@ class PaliGemmaProcessor:
                 image_seq_len=self.num_image_tokens,
                 image_token=self.IMAGE_TOKEN
             )
-            for prompt in text_inputs
+            for prompt in prompts
         ]
         
         # inputs is a dict with 'input_ids' and 'attention_mask'

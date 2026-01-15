@@ -1,29 +1,121 @@
+import os
+import json
+import glob
 import torch
 
-def rotate_half(x: torch.Tensor) -> torch.Tensor:
-    """Rotate half of the tensor: [x₁, x₂, x₃, x₄] -> [-x₃, -x₄, x₁, x₂]"""
+from PIL import Image
+from typing import Tuple
+from kv_cache import KVCache
+from safetensors import safe_open
+from transformers import AutoTokenizer
+from paligemma_preprocessor import PaliGemmaPreprocessor
+from paligemma import PaliGemmaConfig, PaliGemmaForConditionalGeneration
 
-    x1 = x[..., :x.shape[-1] // 2]  # first half in the last dimension
-    x2 = x[..., x.shape[-1] // 2:]  # second half in the last dimension
-    return torch.cat((-x2, x1), dim=-1)
+def load_huggingface_weights_into_model(
+        model_path: str,
+        device: str
+) -> Tuple[PaliGemmaForConditionalGeneration, AutoTokenizer]:
+    """Load weights from a Hugging Face model state dict."""
 
-def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """Apply rotary positional embeddings to query and key tensors."""
+    tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="right")
 
-    # add head dimension
-    cos = cos.unsqueeze(1)  # [b, seq_len, head_dim] -> [b, 1, seq_len, head_dim]
-    sin = sin.unsqueeze(1)  # [b, seq_len, head_dim] -> [b, 1, seq_len, head_dim]
+    # load weights
+    tensors = {}
+    safetensor_files = glob.glob(os.path.join(model_path, "*.safetensors"))
+    for file in safetensor_files:
+        with safe_open(file, framework="pt", device=device) as f:
+            for key in f.keys():
+                tensors[key] = f.get_tensor(key)
 
-    q_rotated = (q * cos) + (rotate_half(q) * sin)  # [b, n_heads, seq_len, head_dim]
-    k_rotated = (k * cos) + (rotate_half(k) * sin)  # [b, n_heads, seq_len, head_dim]
-    return q_rotated, k_rotated
+    # load model config
+    with open(os.path.join(model_path, "config.json"), "r") as f:
+        config_file = json.load(f)
+        config = PaliGemmaConfig(**config_file)
 
-def repeat_kv(tensor: torch.Tensor, n_rep: int) -> torch.Tensor:
-    """Repeat key/value heads for multi-query attention."""
+    # load model
+    model = PaliGemmaForConditionalGeneration(config).to(device)
+    model.load_state_dict(tensors, strict=False)
+    model.tie_weights()
 
-    if n_rep == 1:
-        return tensor
+    return model, tokenizer
+
+def prepare_model_inputs(
+        preprocessor: PaliGemmaPreprocessor,
+        image_path: str,
+        prompt: str,
+        device: str
+) -> dict:
+    """Prepare model inputs from image and prompt."""
+
+    image = Image.open(image_path)
+    images = [image]
+    prompts = [prompt]
+
+    inputs = preprocessor(images=images, prompts=prompts)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    return inputs
+
+def sample_top_p(logits: torch.Tensor, p: float) -> torch.Tensor:
+    """Apply top-p (nucleus) sampling."""
+
+    probabilities = torch.softmax(logits, dim=-1)                   # [b, vocab_size]
+    probs_sort, probs_idx = torch.sort(probabilities, dim=-1, descending=True)
+    cumulative_probs = torch.cumsum(probs_sort, dim=-1)
+    mask = cumulative_probs - probs_sort > p                        # mask tokens outside the nucleus
+    probs_sort[mask] = 0.0                                          # zero out masked tokens
+    probs_sort.div_(probs_sort.sum(dim=-1, keepdim=True))           # renormalize probabilities (sum to 1)
+    next_token = torch.multinomial(probs_sort, num_samples=1)       # sample token index in the sorted list
+    next_token = torch.gather(probs_idx, -1, next_token)            # map to original index
+    return next_token                                               # [b, 1]
+
+def inference(
+        model: PaliGemmaForConditionalGeneration,
+        preprocessor: PaliGemmaPreprocessor,
+        image_path: str,
+        prompt: str,
+        max_tokens: int,
+        do_sample: bool,
+        temperature: float,
+        top_p: float,
+        device: str
+) -> None:
+    """Run inference on the model given an image and prompt."""
+
+    inputs = prepare_model_inputs(preprocessor, image_path, prompt, device)
+
+    kv_cache = KVCache()
+    input_ids = inputs["input_ids"]
+    pixel_values = inputs["pixel_values"]
+    attention_mask = inputs["attention_mask"]
+
+    generated_tokens = []
+    for _ in range(max_tokens):
+        outputs = model(
+            input_ids=input_ids,
+            pixel_values=pixel_values,
+            attention_mask=attention_mask,
+            kv_cache=kv_cache
+        )
+
+        kv_cache = outputs["kv_cache"]
+        next_token_logits = outputs["logits"][:, -1, :]
+
+        if do_sample:
+            next_token = sample_top_p(next_token_logits/temperature, top_p)
+        else:
+            next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+        
+        next_token = next_token.squeeze(0)      # remove batch dimension
+        generated_tokens.append(next_token)
+
+        if next_token.item() == preprocessor.tokenizer.eos_token_id:
+            break
+
+        input_ids = next_token.unsqueeze(0)     # add batch dimension
+        attention_mask = torch.cat(
+            [attention_mask, torch.ones((attention_mask.size(0), 1), device=device)], dim=-1
+        )
     
-    batch_size, n_heads, seq_len, head_dim = tensor.size()
-    tensor = tensor.unsqueeze(2).expand(batch_size, n_heads, n_rep, seq_len, head_dim)
-    return tensor.contiguous().view(batch_size, n_heads * n_rep, seq_len, head_dim)
+    generated_tokens = torch.cat(generated_tokens, dim=-1)
+    decoded = preprocessor.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+    print(prompt + decoded)

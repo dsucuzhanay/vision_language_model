@@ -1,5 +1,8 @@
 # Virtual environment
 venv/
 
-# Artifacts / data
-paligemma_weights/
+# Python
+__pycache__/
+
+# weights and configuration files
+paligemma-3b-pt-224/
