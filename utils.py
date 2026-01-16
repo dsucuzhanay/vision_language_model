@@ -1,15 +1,14 @@
 import os
 import json
-import glob
 import torch
 
 from PIL import Image
 from typing import Tuple
 from kv_cache import KVCache
-from safetensors import safe_open
 from transformers import AutoTokenizer
 from paligemma_preprocessor import PaliGemmaPreprocessor
 from paligemma import PaliGemmaConfig, PaliGemmaForConditionalGeneration
+from accelerate import init_empty_weights, load_checkpoint_and_dispatch
 
 def load_huggingface_weights_into_model(
         model_path: str,
@@ -19,22 +18,27 @@ def load_huggingface_weights_into_model(
 
     tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="right")
 
-    # load weights
-    tensors = {}
-    safetensor_files = glob.glob(os.path.join(model_path, "*.safetensors"))
-    for file in safetensor_files:
-        with safe_open(file, framework="pt", device=device) as f:
-            for key in f.keys():
-                tensors[key] = f.get_tensor(key)
-
     # load model config
     with open(os.path.join(model_path, "config.json"), "r") as f:
         config_file = json.load(f)
         config = PaliGemmaConfig(**config_file)
 
     # load model
-    model = PaliGemmaForConditionalGeneration(config).to(device)
-    model.load_state_dict(tensors, strict=False)
+    with init_empty_weights():
+        model = PaliGemmaForConditionalGeneration(config)
+
+    model.tie_weights()
+
+    model = load_checkpoint_and_dispatch(
+        model,
+        checkpoint=model_path,
+        device_map="auto",
+        dtype=torch.bfloat16,
+        offload_folder="offload",
+        strict=False,
+        offload_state_dict=True
+    )
+
     model.tie_weights()
 
     return model, tokenizer

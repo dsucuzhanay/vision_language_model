@@ -25,7 +25,7 @@ def preprocess_images(
 
     images = [img.transpose(2, 0, 1) for img in images]         # move channel dimension to first position
     images = np.stack(images, axis=0)                           # stack into a batch of images [b, c, h, w]
-    images = torch.tensor(images)                               # convert to torch tensor
+    images = torch.tensor(images, dtype=torch.bfloat16)         # convert to torch tensor
 
     return images
 

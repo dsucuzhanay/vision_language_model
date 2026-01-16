@@ -6,3 +6,4 @@ __pycache__/
 
 # weights and configuration files
 paligemma-3b-pt-224/
+offload/
