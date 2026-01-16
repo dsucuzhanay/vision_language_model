@@ -35,7 +35,7 @@ class Embeddings(nn.Module):
     def __init__(self, config: VisionConfig):
         super().__init__()
 
-        self.patch_embeddings = nn.Conv2d(
+        self.patch_embedding = nn.Conv2d(
             in_channels=config.num_channels,
             out_channels=config.hidden_size,
             kernel_size=config.patch_size,
@@ -44,7 +44,7 @@ class Embeddings(nn.Module):
         )
 
         self.num_patches = (config.image_size // config.patch_size) ** 2
-        self.position_embeddings = nn.Embedding(self.num_patches, config.hidden_size)
+        self.position_embedding = nn.Embedding(self.num_patches, config.hidden_size)
         self.register_buffer(
             name="position_ids",
             tensor=torch.arange(self.num_patches).expand((1, -1)),
@@ -52,10 +52,10 @@ class Embeddings(nn.Module):
         )
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        embeddings = self.patch_embeddings(pixel_values)                        # [b, c, h, w] -> [b, hidden_size, h/patch_size, w/patch_size]
+        embeddings = self.patch_embedding(pixel_values)                        # [b, c, h, w] -> [b, hidden_size, h/patch_size, w/patch_size]
         embeddings = embeddings.flatten(2)                                      # [b, hidden_size, num_patches]; num_patches = (h/patch_size)*(w/patch_size)
         embeddings = embeddings.transpose(1, 2)                                 # [b, num_patches, hidden_size]; similar to [b, seq_len, d_model]
-        embeddings = embeddings + self.position_embeddings(self.position_ids)   # [b, num_patches, hidden_size]
+        embeddings = embeddings + self.position_embedding(self.position_ids)   # [b, num_patches, hidden_size]
         return embeddings
 
 class MultiheadAttention(nn.Module):

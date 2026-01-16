@@ -123,7 +123,7 @@ class RotaryPositionalEmbedding(nn.Module):
         self.inv_freq.to(tensor.device)                                                        # [head_dim/2]
         inv_freq = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)   # [head_dim/2] -> [b, head_dim/2, 1]
         position_ids = position_ids[:, None, :].float()                                        # [b, seq_len] -> [b, 1, seq_len]
-        device_type = tensor.device.dtype
+        device_type = tensor.device.type
         device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
 
         with torch.autocast(device_type, enabled=False):
