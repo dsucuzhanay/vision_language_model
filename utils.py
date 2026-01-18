@@ -33,7 +33,6 @@ def load_huggingface_weights_into_model(
         model,
         checkpoint=model_path,
         device_map="auto",
-        dtype=torch.bfloat16,
         offload_folder="offload",
         strict=False,
         offload_state_dict=True
@@ -82,7 +81,7 @@ def inference(
         temperature: float,
         top_p: float,
         device: str
-) -> None:
+):
     """Run inference on the model given an image and prompt."""
 
     inputs = prepare_model_inputs(preprocessor, image_path, prompt, device)
@@ -122,4 +121,4 @@ def inference(
     
     generated_tokens = torch.cat(generated_tokens, dim=-1)
     decoded = preprocessor.tokenizer.decode(generated_tokens, skip_special_tokens=True)
-    print(prompt + decoded)
+    return decoded

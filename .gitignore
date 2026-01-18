@@ -3,7 +3,9 @@ venv/
 
 # Python
 __pycache__/
+.vscode/
 
 # weights and configuration files
 paligemma-3b-pt-224/
+paligemma-3b-pt-224-bf16/
 offload/
